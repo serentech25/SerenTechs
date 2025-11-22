@@ -1,0 +1,149 @@
+#include <Arduino.h> // MANDATORY for ESP32 core functions
+#include <Wire.h> 
+#include <WiFi.h> 
+#include "RTClib.h" 
+#include <LiquidCrystal_I2C.h> 
+#include <Adafruit_NeoPixel.h> // Library for Addressable LED
+
+// --- Define New I2C Pins ---
+#define I2C_SDA_PIN 32 // Custom SDA Pin for RTC and LCD
+#define I2C_SCL_PIN 33 // Custom SCL Pin for RTC and LCD
+
+// --- Define Addressable LED Pin ---
+#define LED_PIN 13          // Data pin for NeoPixel/Addressable LED
+#define NUM_LEDS 1          // Assuming 1 RGB LED
+
+// --- Define Sensor & Relay Pins ---
+#define TRIG_PIN 4      // HCSR04 Trigger
+#define ECHO_PIN 5      // HCSR04 Echo
+#define RELAY_MIST 25   // Relay 1: Mist Maker (Output Active LOW)
+#define RELAY_FAN 26    // Relay 2: Fan (Output Active LOW)
+#define BUZZER_PIN 17   // Warning Buzzer
+#define BUTTON_PIN 34   // Toggle Button (Input Pull-up)
+
+// --- Water Measurement Constants (in cm) ---
+const float FULL_DISTANCE = 2.0;    // Distance from sensor to water when full
+const float EMPTY_DISTANCE = 10.0;  // Distance from sensor to water when empty
+const float WATER_RANGE = EMPTY_DISTANCE - FULL_DISTANCE;
+
+// --- Time Control & Mode Constants ---
+const int FOCUS_START_1_HOUR = 8;   // 08:00 AM
+const int FOCUS_END_1_HOUR = 12;    
+const int FOCUS_START_2_HOUR = 18;  // 06:00 PM
+const int FOCUS_END_2_HOUR = 20;    
+const int RELAX_START_HOUR = 21;    // 09:00 PM
+const int RELAX_END_HOUR = 24;      // Midnight
+
+const long FAN_ON_DURATION = 3000;      // Fan ON for 3 seconds
+const long FAN_CYCLE_TIME = 120000;     // Fan cycle every 2 minutes
+const long DEBOUNCE_DELAY = 100;        
+const long COLOR_CYCLE_TIME = 5000;     // Change Relax color every 5 seconds
+
+// --- Library Objects ---
+RTC_DS3231 rtc;
+LiquidCrystal_I2C lcd(0x27, 16, 2); 
+Adafruit_NeoPixel pixels(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// --- Global State Variables ---
+bool mistMakerStatus = false;       
+bool isLowWater = false;            
+bool isAutoMode = true;             
+unsigned long lastFanToggleTime = 0;
+unsigned long lastButtonPressTime = 0;
+unsigned long lastColorChangeTime = 0;
+int currentColorIndex = 0;
+
+// ==============================================================================
+//                              RGB CONTROL FUNCTIONS (NEOPIXEL)
+// ==============================================================================
+
+/**
+ * @brief Set the color of the Addressable LED.
+ * @param r Red Intensity (0-255)
+ * @param g Green Intensity (0-255)
+ * @param b Blue Intensity (0-255)
+ */
+void setRGBColor(int r, int g, int b) {
+  pixels.setPixelColor(0, pixels.Color(r, g, b));
+  pixels.show(); // Send data to LED
+}
+
+/**
+ * @brief Cycle through calm colors for Relax Mode.
+ */
+void handleRelaxColorCycle() {
+  // Calm colors (Purple, Blue, Teal, Light Blue)
+  const uint32_t colors[] = {
+    pixels.Color(128, 0, 128),  // Purple
+    pixels.Color(0, 0, 255),    // Blue
+    pixels.Color(0, 128, 128),  // Teal
+    pixels.Color(173, 216, 230) // Light Blue
+  };
+  const int numColors = sizeof(colors) / sizeof(colors[0]);
+
+  if (millis() - lastColorChangeTime >= COLOR_CYCLE_TIME) {
+    lastColorChangeTime = millis();
+    currentColorIndex = (currentColorIndex + 1) % numColors;
+  }
+
+  pixels.setPixelColor(0, colors[currentColorIndex]);
+  pixels.show();
+}
+
+// ==============================================================================
+//                              RTC & AUTOMATION FUNCTIONS
+// ==============================================================================
+
+bool checkAutoMode() {
+  DateTime now = rtc.now(); 
+  int currentHour = now.hour();
+  
+  bool isFocusTime1 = (currentHour >= FOCUS_START_1_HOUR && currentHour < FOCUS_END_1_HOUR);
+  bool isFocusTime2 = (currentHour >= FOCUS_START_2_HOUR && currentHour < FOCUS_END_2_HOUR);
+  bool isRelaxTime = (currentHour >= RELAX_START_HOUR && currentHour < RELAX_END_HOUR);
+
+  return isFocusTime1 || isFocusTime2 || isRelaxTime; 
+}
+
+// ==============================================================================
+//                              SENSOR & CONTROL FUNCTIONS
+// ==============================================================================
+
+float measureDistance() {
+  float totalDistance = 0;
+  int numReadings = 5;
+  for (int i = 0; i < numReadings; i++) {
+    digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    long duration = pulseIn(ECHO_PIN, HIGH);
+    float distanceCm = duration * 0.034 / 2;
+    totalDistance += distanceCm;
+    delay(10); 
+  }
+  return totalDistance / numReadings;
+}
+
+void controlDevices() {
+  bool desiredMistState = false; 
+
+  if (isAutoMode) {
+    desiredMistState = checkAutoMode(); 
+  } else {
+    desiredMistState = mistMakerStatus; 
+  }
+
+  // --- Safety Lock Control ---
+  if (isLowWater) {
+    digitalWrite(RELAY_MIST, HIGH); // OFF
+    digitalWrite(RELAY_FAN, HIGH);  // OFF
+    return;
+  } 
+  
+  mistMakerStatus = desiredMistState; 
+
+  // Execute Relay Control (Active LOW)
+  digitalWrite(RELAY_MIST, desiredMistState ? LOW : HIGH); 
+
+  // Intermittent Fan Control
+  if (desiredMistState) {
