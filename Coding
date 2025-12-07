@@ -8,42 +8,42 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_NeoPixel.h>
-#include <DHT.h> 
+#include <DHT.h>
 
 // --- WIFI CREDENTIALS ---
 char ssid[] = "serentech";
 char pass[] = "champion";
 
-// --- KONFIGURASI DHT11 ---
-#define DHTPIN 14     
-#define DHTTYPE DHT11 
+// --- DHT11 CONFIGURATION ---
+#define DHTPIN 14
+#define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-// --- KONFIGURASI SENSOR AIR ---
-#define SIGNAL_PIN 35  
-#define SIGNAL_PIN2 34 
-int water_value = 0;   
-int water_value2 = 0;  
+// --- WATER SENSOR CONFIGURATION ---
+#define SIGNAL_PIN 35
+#define SIGNAL_PIN2 34
+int water_value = 0;
+int water_value2 = 0;
 
-// --- DEFINISI PIN LAINNYA ---
-#define RELAY1_PIN 16   
-#define RELAY2_PIN 17   
-#define RELAY3_PIN 18   
-#define BUTTON_PIN 27   
-#define BUZZER_PIN 25   
+// --- OTHER PIN DEFINITIONS ---
+#define RELAY1_PIN 16
+#define RELAY2_PIN 17
+#define RELAY3_PIN 18
+#define BUTTON_PIN 27
+#define BUZZER_PIN 25
 
-// --- KONFIGURASI LED STRIP ---
-#define LED_PIN    19   
-#define LED_COUNT  92   
-#define BRIGHTNESS 30   
+// --- LED STRIP CONFIGURATION ---
+#define LED_PIN    19
+#define LED_COUNT  92
+#define BRIGHTNESS 30
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-// --- KONFIGURASI LCD ---
+// --- LCD CONFIGURATION ---
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // State variables
 int relayState = 0;  // Start at 0 (Off)
-bool lastButtonState = HIGH; 
+bool lastButtonState = HIGH;
 
 // Button timing
 unsigned long buttonPressStart = 0;
@@ -52,37 +52,37 @@ bool buttonPressed = false;
 // Sensor data variables
 float tempDeg = 0.0;
 int hum = 0;
-unsigned long lastDHTRead = 0; 
+unsigned long lastDHTRead = 0;
 
 // LED timing
 unsigned long lastColorChange = 0;
-bool isOrange = true; 
+bool isOrange = true;
 
-// --- VARIABEL UNTUK ZeRGBa ---
-bool manualColorMode = false; // Penanda sedang pakai ZeRGBa atau tidak
-int r = 0, g = 0, b = 0;      // Menyimpan warna ZeRGBa
+// --- VARIABLES FOR ZeRGBa ---
+bool manualColorMode = false; // Flag for using ZeRGBa or not
+int r = 0, g = 0, b = 0;      // Store ZeRGBa color
 
 // LCD timing
 unsigned long lastLCDUpdate = 0;
-bool needsLCDUpdate = true; 
+bool needsLCDUpdate = true;
 
 // Blynk timing
 unsigned long lastBlynkSend = 0;
 
 // Auto mode variables
-bool autoMode = false; 
+bool autoMode = false;
 unsigned long manualOverrideStart = 0;
-const unsigned long MANUAL_OVERRIDE_DURATION = 30 * 60 * 1000; 
+const unsigned long MANUAL_OVERRIDE_DURATION = 30 * 60 * 1000;
 
 // Buzzer timing
 unsigned long lastBeep = 0;
 bool buzzerState = false;
 
 // --- GLOBAL FLAGS ---
-bool isOfflineMode = false; 
+bool isOfflineMode = false;
 
 void setup() {
-  // 1. Init Hardware
+  // 1. Initialize Hardware
   pinMode(RELAY1_PIN, OUTPUT);
   pinMode(RELAY2_PIN, OUTPUT);
   pinMode(RELAY3_PIN, OUTPUT);
@@ -97,7 +97,7 @@ void setup() {
   Serial.begin(115200);
 
   Wire.begin();
-  lcd.begin(16, 2); 
+  lcd.begin(16, 2);
   lcd.backlight();
 
   dht.begin();
@@ -117,23 +117,23 @@ void setup() {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Connecting...");
-  
+
   Serial.println("\n--- SYSTEM STARTUP ---");
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
 
   WiFi.begin(ssid, pass);
-  Blynk.config(BLYNK_AUTH_TOKEN); 
+  Blynk.config(BLYNK_AUTH_TOKEN);
 
   unsigned long startAttemptTime = millis();
   bool connectedSuccess = false;
-  bool wifiConnectedFlag = false; 
+  bool wifiConnectedFlag = false;
 
   while (millis() - startAttemptTime < 60000) {
     if (WiFi.status() == WL_CONNECTED) {
       if (!wifiConnectedFlag) {
         wifiConnectedFlag = true;
-        Serial.println(); 
+        Serial.println();
         Serial.println(">> WiFi Connected to " + String(ssid));
         Serial.println(">> Now attempting to connect to Blynk Server...");
         Serial.print("   Please wait");
@@ -142,16 +142,16 @@ void setup() {
       }
 
       if (!Blynk.connected()) {
-        Blynk.connect(1000); 
-        Serial.print(".");   
+        Blynk.connect(1000);
+        Serial.print(".");
       } else {
         Serial.println();
         Serial.println(">> Blynk Connected Successfully!");
         connectedSuccess = true;
-        break; 
+        break;
       }
     } else {
-      Serial.print("."); 
+      Serial.print(".");
       delay(500);
     }
   }
@@ -160,10 +160,10 @@ void setup() {
   // 4. Determine Mode based on Connection Result
   lcd.clear();
   lcd.setCursor(0, 0);
-  
+
   if (connectedSuccess) {
     isOfflineMode = false;
-    relayState = 3; 
+    relayState = 3;
     autoMode = true;
     Serial.println(">> MODE: ONLINE (Full Features Active)");
     lcd.print("System Online");
@@ -172,7 +172,7 @@ void setup() {
     configTime(7 * 3600, 0, "pool.ntp.org");
   } else {
     isOfflineMode = true;
-    relayState = 0; 
+    relayState = 0;
     autoMode = false;
     Serial.println(">> TIMEOUT REACHED (60s)!");
     Serial.println(">> MODE: OFFLINE");
@@ -180,34 +180,34 @@ void setup() {
     lcd.setCursor(0, 1);
     lcd.print("Offline Mode");
   }
-  
-  delay(2000); 
+
+  delay(2000);
   lcd.clear();
 }
 
-// --- BLYNK HANDLER UNTUK ZeRGBa (V5) ---
+// --- BLYNK HANDLER FOR ZeRGBa (V5) ---
 BLYNK_WRITE(V5) {
-  // ZeRGBa diset ke MERGE mode mengirim 3 nilai (R, G, B)
+  // ZeRGBa set to MERGE mode sending 3 values (R, G, B)
   r = param[0].asInt();
   g = param[1].asInt();
   b = param[2].asInt();
-  
-  // Aktifkan mode manual agar warna loop() tidak menimpa warna ini
-  manualColorMode = true; 
-  
-  // Langsung terapkan warna
+
+  // Activate manual mode so color loop() doesn't override this color
+  manualColorMode = true;
+
+  // Directly apply color
   strip.fill(strip.Color(r, g, b));
   strip.show();
 }
 
-// Blynk V4 Handler (Ganti Mode)
+// Blynk V4 Handler (Change Mode)
 BLYNK_WRITE(V4) {
   int value = param.asInt();
   relayState = value;
-  
-  // Jika user ganti mode, matikan manual color mode ZeRGBa
-  manualColorMode = false; 
-  
+
+  // If user changes mode, turn off manual color mode ZeRGBa
+  manualColorMode = false;
+
   if (value == 0) { // OFF
     digitalWrite(RELAY1_PIN, HIGH);
     digitalWrite(RELAY2_PIN, HIGH);
@@ -223,7 +223,7 @@ BLYNK_WRITE(V4) {
   } else if (value == 3) { // AUTO
     autoMode = true;
   }
-  
+
   manualOverrideStart = millis();
   needsLCDUpdate = true;
 }
@@ -235,7 +235,7 @@ void loop() {
   if (!isOfflineMode) {
     if (WiFi.status() == WL_CONNECTED) {
       Blynk.run();
-    } 
+    }
   }
 
   // --- 2. AUTO MODE LOGIC ---
@@ -244,21 +244,21 @@ void loop() {
         autoMode = true;
         relayState = 3;
         needsLCDUpdate = true;
-        manualColorMode = false; // Reset warna manual jika kembali ke auto
+        manualColorMode = false; // Reset manual color if back to auto
       }
 
       if (water_value != 0 && water_value2 != 0) {
         struct tm timeinfo;
         if (getLocalTime(&timeinfo)) {
           int hour = timeinfo.tm_hour;
-          int newState = 0; 
-          
+          int newState = 0;
+
           if (hour >= 8 && hour < 12) {
             newState = 1; // Focus
           } else if (hour >= 20 || hour == 0) {
             newState = 2; // Relax
           }
-          
+
           if (newState == 0) {
             digitalWrite(RELAY1_PIN, HIGH);
             digitalWrite(RELAY2_PIN, HIGH);
@@ -288,7 +288,7 @@ void loop() {
   // Water Sensors
   water_value = analogRead(SIGNAL_PIN);
   water_value2 = analogRead(SIGNAL_PIN2);
-  
+
   if (water_value == 0 || water_value2 == 0) {
     digitalWrite(RELAY1_PIN, HIGH);
     digitalWrite(RELAY2_PIN, HIGH);
@@ -302,37 +302,37 @@ void loop() {
     if (needsLCDUpdate || currentMillis - lastLCDUpdate >= 1000) {
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("Refill The Oil");
+      lcd.print("Refill Oil");
       lcd.setCursor(0, 1);
-      lcd.print("Before Used");
+      lcd.print("Before Use");
       lastLCDUpdate = currentMillis;
       needsLCDUpdate = false;
     }
-  } 
+  }
   else {
     digitalWrite(BUZZER_PIN, LOW);
     buzzerState = false;
 
     // --- BUTTON HANDLING ---
     bool buttonState = digitalRead(BUTTON_PIN);
-    
-    if (buttonState == LOW && lastButtonState == HIGH) { 
+
+    if (buttonState == LOW && lastButtonState == HIGH) {
       buttonPressed = true;
       buttonPressStart = currentMillis;
-    } else if (buttonState == HIGH && lastButtonState == LOW) { 
+    } else if (buttonState == HIGH && lastButtonState == LOW) {
       buttonPressed = false;
     }
 
     if (buttonPressed && buttonState == LOW && (currentMillis - buttonPressStart >= 1000)) {
-      // Tombol fisik ditekan, matikan mode warna manual ZeRGBa
-      manualColorMode = false; 
+      // Physical button pressed, turn off manual color mode ZeRGBa
+      manualColorMode = false;
 
       if (isOfflineMode) {
-         relayState = (relayState + 1) % 3; 
+         relayState = (relayState + 1) % 3;
       } else {
          relayState = (relayState + 1) % 4;
       }
-      
+
       if (relayState == 0) {
         digitalWrite(RELAY1_PIN, HIGH);
         digitalWrite(RELAY2_PIN, HIGH);
@@ -346,11 +346,11 @@ void loop() {
         digitalWrite(RELAY2_PIN, LOW);
         autoMode = false;
       } else if (relayState == 3) {
-        autoMode = true; 
+        autoMode = true;
       }
 
       manualOverrideStart = millis();
-      buttonPressed = false; 
+      buttonPressed = false;
       needsLCDUpdate = true;
     }
     lastButtonState = buttonState;
@@ -359,18 +359,18 @@ void loop() {
     if (needsLCDUpdate || currentMillis - lastLCDUpdate >= 2000) {
       struct tm timeinfo;
       String timeStr = "--:--";
-      
+
       if (!isOfflineMode && getLocalTime(&timeinfo)) {
         char timeBuffer[6];
         strftime(timeBuffer, sizeof(timeBuffer), "%H:%M", &timeinfo);
         timeStr = String(timeBuffer);
       } else {
-        timeStr = "Offln"; 
+        timeStr = "Offln";
       }
 
       lcd.clear();
       lcd.setCursor(0, 0);
-      if (manualColorMode) lcd.print("Mode: Custom LED"); // Info kalau lagi pakai ZeRGBa
+      if (manualColorMode) lcd.print("Mode: Custom LED"); // Info if using ZeRGBa
       else if (relayState == 0) lcd.print("Mode: OFF");
       else if (relayState == 1) lcd.print("Mode: FOCUS");
       else if (relayState == 2) lcd.print("Mode: RELAX");
@@ -379,16 +379,16 @@ void loop() {
       lcd.setCursor(0, 1);
       String displayStr = timeStr + " T:" + String((int)tempDeg) + " H:" + String(hum);
       lcd.print(displayStr);
-      
+
       lastLCDUpdate = currentMillis;
       needsLCDUpdate = false;
     }
   }
 
   // --- LED STRIP CONTROL ---
-  // Hanya atur lampu otomatis JIKA user TIDAK sedang pakai ZeRGBa
+  // Only set lights automatically IF user is NOT using ZeRGBa
   if (!manualColorMode) {
-    if (relayState == 0 || relayState == 3) { 
+    if (relayState == 0 || relayState == 3) {
       if (currentMillis - lastColorChange >= 2000) {
         lastColorChange = currentMillis;
         isOrange = !isOrange;
@@ -403,7 +403,7 @@ void loop() {
       strip.show();
     }
   }
-  // Jika manualColorMode == true, warnanya sudah diatur di fungsi BLYNK_WRITE(V5)
+  // If manualColorMode == true, color is already set in BLYNK_WRITE(V5)
 
   if (!isOfflineMode && WiFi.status() == WL_CONNECTED && (currentMillis - lastBlynkSend >= 5000)) {
     lastBlynkSend = currentMillis;
@@ -412,5 +412,5 @@ void loop() {
     Blynk.virtualWrite(V4, relayState);
   }
 
-  delay(100); 
+  delay(100);
 }
